@@ -974,3 +974,76 @@ func isValidProtocol(s string) bool {
 
 	return true
 }
+
+func cleanupELBNetworkInterfaces(conn *ec2.EC2, name string) error {
+	out, err := conn.DescribeNetworkInterfaces(&ec2.DescribeNetworkInterfacesInput{
+		Filters: []*ec2.Filter{
+			{
+				Name:   aws.String("requester-id"),
+				Values: []*string{aws.String("amazon-elb")},
+			},
+			{
+				Name:   aws.String("description"),
+				Values: []*string{aws.String("ELB " + name)},
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	err = detachNetworkInterfaces(conn, out.NetworkInterfaces)
+	if err != nil {
+		return err
+	}
+
+	err = deleteNetworkInterfaces(conn, out.NetworkInterfaces)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func detachNetworkInterfaces(conn *ec2.EC2, nis []*ec2.NetworkInterface) error {
+	log.Printf("[DEBUG] Trying to detach %d leftover ENIs", len(nis))
+	for _, ni := range nis {
+		if ni.Attachment == nil {
+			log.Printf("[DEBUG] ENI %s is already detached", *ni.NetworkInterfaceId)
+			continue
+		}
+		_, err := conn.DetachNetworkInterface(&ec2.DetachNetworkInterfaceInput{
+			AttachmentId: ni.Attachment.AttachmentId,
+			Force:        aws.Bool(true),
+		})
+		if err != nil {
+			return err
+		}
+
+		log.Printf("[DEBUG] Waiting for ENI (%s) to become detached", *ni.NetworkInterfaceId)
+		stateConf := &resource.StateChangeConf{
+			Pending: []string{"true"},
+			Target:  []string{"false"},
+			Refresh: networkInterfaceAttachmentRefreshFunc(conn, *ni.NetworkInterfaceId),
+			Timeout: 10 * time.Minute,
+		}
+		if _, err := stateConf.WaitForState(); err != nil {
+			return fmt.Errorf(
+				"Error waiting for ENI (%s) to become detached: %s", *ni.NetworkInterfaceId, err)
+		}
+	}
+	return nil
+}
+
+func deleteNetworkInterfaces(conn *ec2.EC2, nis []*ec2.NetworkInterface) error {
+	log.Printf("[DEBUG] Trying to delete %d leftover ENIs", len(nis))
+	for _, ni := range nis {
+		_, err := conn.DeleteNetworkInterface(&ec2.DeleteNetworkInterfaceInput{
+			NetworkInterfaceId: ni.NetworkInterfaceId,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
