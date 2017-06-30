@@ -792,6 +792,11 @@ func resourceAwsElbDelete(d *schema.ResourceData, meta interface{}) error {
 		return fmt.Errorf("Error deleting ELB: %s", err)
 	}
 
+	err := cleanupELBNetworkInterfaces(meta.(*AWSClient).ec2conn, d.Get("name").(string))
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
