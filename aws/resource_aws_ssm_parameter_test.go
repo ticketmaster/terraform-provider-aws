@@ -50,6 +50,25 @@ func TestAccAWSSSMParameter_update(t *testing.T) {
 	})
 }
 
+func TestAccAWSSSMParameter_changeNameForcesNew(t *testing.T) {
+	name := acctest.RandString(10)
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckAWSSSMParameterDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccAWSSSMParameterBasicConfig(name, "bar"),
+			},
+			{
+				Config:             testAccAWSSSMParameterBasicConfigChangeName(name, "baz1"),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+		},
+	})
+}
+
 func TestAccAWSSSMParameter_secure(t *testing.T) {
 	name := acctest.RandString(10)
 	resource.Test(t, resource.TestCase{
@@ -174,6 +193,16 @@ func testAccCheckAWSSSMParameterDestroy(s *terraform.State) error {
 }
 
 func testAccAWSSSMParameterBasicConfig(rName string, value string) string {
+	return fmt.Sprintf(`
+resource "aws_ssm_parameter" "foo" {
+  name  = "test_parameter-%s"
+  type  = "String"
+  value = "%s"
+}
+`, rName, value)
+}
+
+func testAccAWSSSMParameterBasicConfigChangeName(rName string, value string) string {
 	return fmt.Sprintf(`
 resource "aws_ssm_parameter" "foo" {
   name  = "test_parameter-%s"
